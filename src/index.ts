@@ -8,7 +8,7 @@
  */
 import type { Env } from "./env.js";
 import { assertConfigured } from "./env.js";
-import { OAuthError, publicMessage } from "./errors.js";
+import { ConfigurationError, OAuthError, publicMessage } from "./errors.js";
 import { json, jsonNoStore, preflight, textError } from "./http.js";
 import {
   authenticate,
@@ -106,9 +106,13 @@ export default {
           { error: error.code, error_description: publicMessage(error) },
           error.httpStatus,
         );
+      } else if (error instanceof ConfigurationError) {
+        // Safe to log in full: it names bindings, never their values.
+        console.error(`configuration_error: ${error.message}`);
+        response = jsonNoStore({ error: "server_error" }, 500);
       } else {
-        // The message is fixed; the real error is only ever visible in the
-        // Worker's own logs, never in the response.
+        // Only the class name. An arbitrary exception message may quote a URL
+        // or payload we must not write to a log.
         console.error("unhandled_error", {
           path: url.pathname,
           name: error instanceof Error ? error.name : "unknown",

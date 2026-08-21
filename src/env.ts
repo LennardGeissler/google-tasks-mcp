@@ -1,3 +1,5 @@
+import { ConfigurationError } from "./errors.js";
+
 /**
  * Bindings available to the Worker.
  *
@@ -35,8 +37,8 @@ const REQUIRED_SECRETS = [
 ] as const satisfies readonly (keyof Env)[];
 
 /**
- * Fails fast with a message that names the missing binding but never prints
- * any value.
+ * Fails fast with a message that names the missing bindings but never their
+ * values. Surfaced in `wrangler tail`, never in a response.
  */
 export function assertConfigured(env: Env): void {
   const missing = REQUIRED_SECRETS.filter((name) => {
@@ -44,7 +46,9 @@ export function assertConfigured(env: Env): void {
     return typeof value !== "string" || value.length === 0;
   });
   if (missing.length > 0) {
-    throw new Error(`Server is misconfigured: missing secret(s) ${missing.join(", ")}`);
+    throw new ConfigurationError(
+      `missing or empty secret(s): ${missing.join(", ")}`,
+    );
   }
 }
 

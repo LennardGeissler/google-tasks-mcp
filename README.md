@@ -295,6 +295,26 @@ Zusätzlich lässt sich der Zugriff jederzeit unter
 [myaccount.google.com/permissions](https://myaccount.google.com/permissions)
 auf Google-Seite widerrufen.
 
+**Wenn alle Endpunkte `500` liefern:**
+
+```bash
+npx wrangler tail
+```
+
+Die Logzeile `configuration_error: missing or empty secret(s): …` nennt genau
+die fehlenden Bindings — Namen, nie Werte. Die Antwort nach außen bleibt ein
+nacktes `{"error":"server_error"}`.
+
+> `wrangler secret put` fragt den Wert **interaktiv** ab. Läuft es ohne
+> Terminal (in einer IDE-Konsole, einem Skript, einem Agenten), liest es einen
+> leeren Wert und meldet trotzdem Erfolg. Das Secret existiert dann, ist aber
+> leer. Entweder in einem echten Terminal ausführen oder den Wert
+> hineinpipen:
+>
+> ```bash
+> printf '%s' "$WERT" | npx wrangler secret put GOOGLE_CLIENT_ID
+> ```
+
 **Logs ansehen:**
 
 ```bash

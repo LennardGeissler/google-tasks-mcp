@@ -62,6 +62,19 @@ export class ToolExecutionError extends PublicError {
   }
 }
 
+/**
+ * A missing or empty binding. Deliberately NOT a PublicError — the client
+ * gets a bare 500 — but its message names the missing bindings (never their
+ * values) and is safe to write to the Worker log, which is the only place an
+ * operator can see why the server refuses to start.
+ */
+export class ConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigurationError";
+  }
+}
+
 /** An OAuth endpoint failure, rendered as an RFC 6749 error object. */
 export class OAuthError extends PublicError {
   readonly code: string;
