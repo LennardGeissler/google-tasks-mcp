@@ -362,7 +362,8 @@ async function exchangeRefreshToken(env: Env, form: URLSearchParams): Promise<Re
     return tokenError("invalid_grant", "This account is no longer authorised.");
   }
 
-  // Rotate: issueTokens always mints a new refresh token as well.
+  // A fresh pair every time. The presented refresh token keeps working until
+  // it expires — see mintRefreshToken for why that is deliberate.
   return jsonNoStore(
     await issueTokens(env, {
       ci: payload.ci,

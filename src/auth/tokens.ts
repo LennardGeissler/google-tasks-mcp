@@ -59,6 +59,8 @@ export interface AccessTokenPayload extends BasePayload {
   sub: string;
   sid: string;
   scope: string;
+  /** Unique per issuance, so two tokens minted in the same second differ. */
+  jti: string;
 }
 
 export interface RefreshTokenPayload extends BasePayload {
@@ -68,6 +70,7 @@ export interface RefreshTokenPayload extends BasePayload {
   sub: string;
   sid: string;
   scope: string;
+  jti: string;
 }
 
 type AnyPayload =
@@ -135,11 +138,11 @@ export function readAuthorizationCode(
 
 export function mintAccessToken(
   key: string,
-  payload: Omit<AccessTokenPayload, "exp" | "t" | "scope">,
+  payload: Omit<AccessTokenPayload, "exp" | "t" | "scope" | "jti">,
 ): Promise<string> {
   return mint<AccessTokenPayload>(
     key,
-    { ...payload, t: "access", scope: SCOPE },
+    { ...payload, t: "access", scope: SCOPE, jti: randomId() },
     ACCESS_TOKEN_TTL_SECONDS,
   );
 }
@@ -148,13 +151,20 @@ export function readAccessToken(key: string, token: string): Promise<AccessToken
   return open<AccessTokenPayload>(key, token, "access");
 }
 
+/**
+ * Refresh tokens are unique per issuance but not revocable: a stateless
+ * server has nowhere to record that an older one was superseded, and putting
+ * that record in KV would make sign-in depend on a read-after-write that KV
+ * does not guarantee. Every issued refresh token therefore stays usable until
+ * it expires. To cut all of them off at once, rotate TOKEN_SIGNING_KEY.
+ */
 export function mintRefreshToken(
   key: string,
-  payload: Omit<RefreshTokenPayload, "exp" | "t" | "scope">,
+  payload: Omit<RefreshTokenPayload, "exp" | "t" | "scope" | "jti">,
 ): Promise<string> {
   return mint<RefreshTokenPayload>(
     key,
-    { ...payload, t: "refresh", scope: SCOPE },
+    { ...payload, t: "refresh", scope: SCOPE, jti: randomId() },
     REFRESH_TOKEN_TTL_SECONDS,
   );
 }
