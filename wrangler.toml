@@ -25,6 +25,5 @@ SERVER_BASE_URL = ""
 
 [[kv_namespaces]]
 binding = "TASKS_KV"
-# Replace with the id printed by:
-#   npx wrangler kv namespace create TASKS_KV
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+# Created with: npx wrangler kv namespace create TASKS_KV
+id = "9048cfbe37de4ed0b54943fe03b3f498"
