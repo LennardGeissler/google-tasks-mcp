@@ -80,11 +80,11 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/" && method === "GET") {
-    // Deliberately says nothing about configuration or connection state.
+    // Deliberately says nothing about configuration or connection state:
+    // whether an account is connected is not public information.
     return json({
       name: "google-tasks-mcp",
       mcp_endpoint: canonicalResource(env, request),
-      documentation: "https://github.com/",
     });
   }
 
