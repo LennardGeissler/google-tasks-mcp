@@ -429,3 +429,22 @@ describe("malformed requests", () => {
     expect(errorOf(body)["code"]).toBe(-32600);
   });
 });
+
+describe("error sanitisation", () => {
+  it("routes every safe error class through one function", async () => {
+    const { publicMessage, McpError, ToolExecutionError, OAuthError } = await import(
+      "../src/errors.js"
+    );
+    const { GoogleAuthError } = await import("../src/auth/google.js");
+
+    expect(publicMessage(new McpError(-32602, "bad params"))).toBe("bad params");
+    expect(publicMessage(new ToolExecutionError("try a valid date"))).toBe("try a valid date");
+    expect(publicMessage(new OAuthError("invalid_grant", "code expired"))).toBe("code expired");
+    expect(publicMessage(new GoogleAuthError("reconnect please"))).toBe("reconnect please");
+
+    // Anything else is internal, whatever it claims about itself.
+    expect(publicMessage(new TypeError("db password is hunter2"))).toBe("Internal server error.");
+    expect(publicMessage("raw string")).toBe("Internal server error.");
+    expect(publicMessage({ message: "leaky" })).toBe("Internal server error.");
+  });
+});

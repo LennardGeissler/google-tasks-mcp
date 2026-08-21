@@ -35,10 +35,6 @@ export async function loadGoogleRefreshToken(env: Env): Promise<string | null> {
   return decryptSecret(env.ENCRYPTION_KEY, encrypted);
 }
 
-export async function clearGoogleRefreshToken(env: Env): Promise<void> {
-  await env.TASKS_KV.delete(REFRESH_TOKEN_KEY);
-}
-
 /**
  * Enforce single use of an authorization code.
  *

@@ -374,7 +374,7 @@ src/
     server.ts           JSON-RPC, beide Protokoll-Generationen
     tools.ts            Tool-Definitionen und Annotations
     handlers.ts         Tool-Implementierungen
-test/                   101 Unit-Tests
+test/                   102 Unit-Tests
 ```
 
 # Tests

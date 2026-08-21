@@ -6,8 +6,7 @@
  * here logs task titles, notes or ids.
  */
 import type { Env } from "../env.js";
-import { ToolExecutionError } from "../errors.js";
-import { GoogleAuthError } from "../auth/google.js";
+import { publicMessage, ToolExecutionError } from "../errors.js";
 import { TasksClient, type Task } from "../google/tasks-client.js";
 import { enforceRateLimit } from "../ratelimit.js";
 import { TOOLS_BY_NAME } from "./tools.js";
@@ -297,14 +296,5 @@ async function deleteTask(
  * Anything unexpected collapses to a fixed message — no stack traces.
  */
 export function toErrorResult(error: unknown): ToolResult {
-  if (error instanceof GoogleAuthError) {
-    return { content: [{ type: "text", text: error.message }], isError: true };
-  }
-  if (error instanceof ToolExecutionError) {
-    return { content: [{ type: "text", text: error.message }], isError: true };
-  }
-  return {
-    content: [{ type: "text", text: "The tool failed because of an internal error." }],
-    isError: true,
-  };
+  return { content: [{ type: "text", text: publicMessage(error) }], isError: true };
 }

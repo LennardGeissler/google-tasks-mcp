@@ -8,7 +8,7 @@
  */
 import type { Env } from "./env.js";
 import { assertConfigured } from "./env.js";
-import { OAuthError } from "./errors.js";
+import { OAuthError, publicMessage } from "./errors.js";
 import { json, jsonNoStore, preflight, textError } from "./http.js";
 import {
   authenticate,
@@ -103,7 +103,7 @@ export default {
     } catch (error) {
       if (error instanceof OAuthError) {
         response = jsonNoStore(
-          { error: error.code, error_description: error.message },
+          { error: error.code, error_description: publicMessage(error) },
           error.httpStatus,
         );
       } else {

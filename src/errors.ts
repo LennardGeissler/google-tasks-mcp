@@ -1,9 +1,17 @@
 /**
  * Error types and the JSON-RPC / OAuth codes we are allowed to emit.
  *
- * Everything user-facing goes through `publicMessage()`, which guarantees we
- * never leak a stack trace or an internal exception message to the client.
+ * Every message that reaches a client goes through `publicMessage()`: errors
+ * derived from PublicError carry text written for the caller, everything else
+ * collapses to a fixed string, so no stack trace or internal exception
+ * message can escape.
  */
+
+/**
+ * Base class for errors whose message was written for the caller and is safe
+ * to send back. Anything not derived from this is treated as internal.
+ */
+export abstract class PublicError extends Error {}
 
 /** JSON-RPC 2.0 plus the MCP-reserved codes (-32020..-32099). */
 export const JsonRpcCode = {
@@ -20,13 +28,11 @@ export const JsonRpcCode = {
   UnsupportedProtocolVersion: -32022,
 } as const;
 
-export type JsonRpcCodeValue = (typeof JsonRpcCode)[keyof typeof JsonRpcCode];
-
 /**
  * A protocol-level failure: returned as a JSON-RPC error response, optionally
  * with a non-200 HTTP status as required by the Streamable HTTP transport.
  */
-export class McpError extends Error {
+export class McpError extends PublicError {
   readonly code: number;
   readonly httpStatus: number;
   readonly data: unknown;
@@ -49,7 +55,7 @@ export class McpError extends Error {
  * Reported as a successful JSON-RPC result carrying `isError: true`, per the
  * tools spec, so the model can self-correct instead of seeing a hard error.
  */
-export class ToolExecutionError extends Error {
+export class ToolExecutionError extends PublicError {
   constructor(message: string) {
     super(message);
     this.name = "ToolExecutionError";
@@ -57,7 +63,7 @@ export class ToolExecutionError extends Error {
 }
 
 /** An OAuth endpoint failure, rendered as an RFC 6749 error object. */
-export class OAuthError extends Error {
+export class OAuthError extends PublicError {
   readonly code: string;
   readonly httpStatus: number;
 
@@ -77,12 +83,5 @@ export class OAuthError extends Error {
  * a fixed string so no internal detail or stack trace escapes.
  */
 export function publicMessage(error: unknown): string {
-  if (
-    error instanceof McpError ||
-    error instanceof ToolExecutionError ||
-    error instanceof OAuthError
-  ) {
-    return error.message;
-  }
-  return "Internal server error.";
+  return error instanceof PublicError ? error.message : "Internal server error.";
 }

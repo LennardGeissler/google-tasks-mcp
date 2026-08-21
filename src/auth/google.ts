@@ -6,6 +6,7 @@
  */
 import { b64urlDecode, timingSafeEqual } from "../crypto.js";
 import type { Env } from "../env.js";
+import { PublicError } from "../errors.js";
 
 export const GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
@@ -18,7 +19,7 @@ export const GOOGLE_SCOPES = "openid https://www.googleapis.com/auth/tasks";
  * for good (revoked, expired, or the OAuth client changed) and the user has
  * to reconnect the connector — retrying will not help.
  */
-export class GoogleAuthError extends Error {
+export class GoogleAuthError extends PublicError {
   readonly needsReauth: boolean;
 
   constructor(message: string, needsReauth = false) {

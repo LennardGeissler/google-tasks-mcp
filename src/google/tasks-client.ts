@@ -189,13 +189,6 @@ export class TasksClient {
     return { tasks, truncated };
   }
 
-  async getTask(tasklistId: string, taskId: string): Promise<Task> {
-    return this.request<Task>(
-      "GET",
-      `/lists/${encodeURIComponent(tasklistId)}/tasks/${encodeURIComponent(taskId)}`,
-    );
-  }
-
   async createTask(tasklistId: string, task: TaskPatch & { title: string }): Promise<Task> {
     return this.request<Task>("POST", `/lists/${encodeURIComponent(tasklistId)}/tasks`, {
       body: task,
