@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isAllowedGoogleSub, readSubFromIdToken } from "../src/auth/google.js";
+import { isAllowedGoogleSub, readSubFromIdToken, SETUP_SENTINEL } from "../src/auth/google.js";
 import { authenticate, handleGoogleCallback } from "../src/auth/mcp-oauth.js";
 import { CLAUDE_REDIRECT_URI } from "../src/auth/clients.js";
 import { mintAccessToken, mintGoogleState, newSessionId } from "../src/auth/tokens.js";
@@ -123,6 +123,24 @@ describe("Google callback", () => {
     );
     expect(response.status).toBe(400);
     expect(response.headers.get("location")).toBeNull();
+  });
+});
+
+describe("setup mode", () => {
+  it("reports the signed-in account's own id and stores nothing", async () => {
+    const env = testEnv({ ALLOWED_GOOGLE_SUB: SETUP_SENTINEL });
+    const response = await callbackFor(env, TEST_ALLOWED_SUB);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    expect(await response.text()).toContain(TEST_ALLOWED_SUB);
+    expect(env.__kv.map.size).toBe(0);
+  });
+
+  it("grants access to nobody while the sentinel is configured", () => {
+    const env = testEnv({ ALLOWED_GOOGLE_SUB: SETUP_SENTINEL });
+    expect(isAllowedGoogleSub(env, TEST_ALLOWED_SUB)).toBe(false);
+    expect(isAllowedGoogleSub(env, SETUP_SENTINEL)).toBe(false);
   });
 });
 

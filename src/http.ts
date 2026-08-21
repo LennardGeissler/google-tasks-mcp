@@ -58,12 +58,17 @@ export function redirect(location: string): Response {
   });
 }
 
-/** A plain-text page for failures we must not redirect (untrusted callback). */
-export function textError(message: string, status: number): Response {
+/** A plain-text page, shown in the browser during the OAuth redirect dance. */
+export function textResponse(message: string, status: number): Response {
   return new Response(`${message}\n`, {
     status,
     headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
   });
+}
+
+/** A plain-text page for failures we must not redirect (untrusted callback). */
+export function textError(message: string, status: number): Response {
+  return textResponse(message, status);
 }
 
 /**

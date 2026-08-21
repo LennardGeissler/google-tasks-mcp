@@ -6,8 +6,10 @@ GOOGLE_CLIENT_ID="000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleuserconte
 GOOGLE_CLIENT_SECRET="GOCSPX-xxxxxxxxxxxxxxxxxxxx"
 
 # Your Google account's stable user id (the `sub` claim). Only this account
-# is allowed to use the server. See README for how to find it.
-ALLOWED_GOOGLE_SUB="123456789012345678901"
+# is allowed to use the server.
+# Set it to SETUP once to have the server tell you your own id, then replace
+# it with that value. See README step 5.
+ALLOWED_GOOGLE_SUB="SETUP"
 
 # openssl rand -base64 32
 TOKEN_SIGNING_KEY="replace-me-with-32-random-bytes-base64"

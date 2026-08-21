@@ -154,6 +154,21 @@ export function readSubFromIdToken(idToken: string): string | null {
 }
 
 /**
+ * Placeholder value for ALLOWED_GOOGLE_SUB during first-time setup.
+ *
+ * There is no way to look up your own Google account id without completing an
+ * OAuth flow, so the server offers one: with this sentinel configured, the
+ * callback reports the id of whoever just signed in and stores nothing. It is
+ * safe for a stranger to hit — they only ever learn their own id — but the
+ * server is unusable until a real id is configured.
+ */
+export const SETUP_SENTINEL = "SETUP";
+
+export function isSetupMode(env: Env): boolean {
+  return env.ALLOWED_GOOGLE_SUB.trim() === SETUP_SENTINEL;
+}
+
+/**
  * The allowlist. Exactly one Google account may ever use this server; every
  * other identity is refused before any token is stored.
  */
@@ -161,5 +176,8 @@ export function isAllowedGoogleSub(env: Env, sub: string | null): boolean {
   if (sub === null || sub.length === 0) return false;
   const allowed = env.ALLOWED_GOOGLE_SUB.trim();
   if (allowed.length === 0) return false;
+  // Setup mode grants nobody access, including an account literally named
+  // "SETUP".
+  if (allowed === SETUP_SENTINEL) return false;
   return timingSafeEqual(sub, allowed);
 }

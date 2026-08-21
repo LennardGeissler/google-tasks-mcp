@@ -13,7 +13,7 @@
 import type { Env } from "../env.js";
 import { baseUrl } from "../env.js";
 import { OAuthError } from "../errors.js";
-import { jsonNoStore, readFormBody, redirect, textError } from "../http.js";
+import { jsonNoStore, readFormBody, redirect, textError, textResponse } from "../http.js";
 import { claimAuthorizationCode, saveGoogleRefreshToken } from "../store.js";
 import {
   isAllowedRedirectUri,
@@ -26,6 +26,7 @@ import {
   exchangeGoogleCode,
   GoogleAuthError,
   isAllowedGoogleSub,
+  isSetupMode,
   readSubFromIdToken,
   type GoogleTokenResponse,
 } from "./google.js";
@@ -221,8 +222,32 @@ export async function handleGoogleCallback(env: Env, request: Request): Promise<
     );
   }
 
-  // The allowlist check. Nothing is persisted before it passes.
   const sub = tokens.idToken === null ? null : readSubFromIdToken(tokens.idToken);
+
+  // First-time setup: show the operator their own account id and stop. No
+  // refresh token is stored and no authorization code is issued.
+  if (isSetupMode(env)) {
+    return textResponse(
+      sub === null
+        ? "Setup mode: Google returned no id_token, so no account id could be read."
+        : [
+            "Setup mode — this server is not connected to any account yet.",
+            "",
+            "Your Google account id (the `sub` claim) is:",
+            "",
+            `    ${sub}`,
+            "",
+            "Store it, then remove setup mode:",
+            "",
+            "    npx wrangler secret put ALLOWED_GOOGLE_SUB",
+            "",
+            "Nothing has been saved. Re-run the connector setup afterwards.",
+          ].join("\n"),
+      200,
+    );
+  }
+
+  // The allowlist check. Nothing is persisted before it passes.
   if (sub === null || !isAllowedGoogleSub(env, sub)) {
     return redirectWithError(
       state.ru, state.cs, issuer,
