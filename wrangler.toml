@@ -1,0 +1,31 @@
+# Cloudflare Worker config.
+#
+# NOTHING SECRET BELONGS IN THIS FILE. It is committed to git.
+# Secrets are set with `wrangler secret put <NAME>` (production) and in the
+# git-ignored .dev.vars file (local `wrangler dev`). See README.md.
+
+name = "google-tasks-mcp"
+main = "src/index.ts"
+compatibility_date = "2026-08-21"
+compatibility_flags = ["nodejs_compat"]
+
+workers_dev = true
+
+[observability]
+enabled = true
+
+[vars]
+# Allow the MCP Inspector's loopback redirect URI in addition to claude.ai.
+# Keep this "false" in production.
+ALLOW_LOCAL_REDIRECT = "false"
+
+# Optional: pin the public origin of this worker, e.g.
+# "https://google-tasks-mcp.<your-subdomain>.workers.dev".
+# Leave empty to derive it from the incoming request.
+SERVER_BASE_URL = ""
+
+[[kv_namespaces]]
+binding = "TASKS_KV"
+# Replace with the id printed by:
+#   npx wrangler kv namespace create TASKS_KV
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
