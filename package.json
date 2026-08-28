@@ -4,6 +4,27 @@
   "private": true,
   "type": "module",
   "description": "Remote MCP server exposing Google Tasks as a Claude.ai custom connector (single user).",
+  "license": "MIT",
+  "author": "Lennard Geissler",
+  "homepage": "https://github.com/LennardGeissler/google-tasks-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LennardGeissler/google-tasks-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LennardGeissler/google-tasks-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "google-tasks",
+    "cloudflare-workers",
+    "claude",
+    "oauth"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
