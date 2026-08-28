@@ -309,7 +309,10 @@ export async function handleMcpPost(
     typeof rawId === "string" || typeof rawId === "number" ? rawId : null;
 
   // Notifications get no response body at all.
-  if (id === null) return acceptedResponse();
+  if (id === null) {
+    console.log(`mcp notification ${method} -> 202`);
+    return acceptedResponse();
+  }
 
   const meta =
     params !== null && typeof params["_meta"] === "object" && params["_meta"] !== null
@@ -317,9 +320,14 @@ export async function handleMcpPost(
       : null;
   const metaVersion = meta === null ? undefined : meta[META_PROTOCOL_VERSION];
 
-  try {
-    const era = detectEra(method, metaVersion);
+  const declaredVersion = typeof metaVersion === "string" ? metaVersion : null;
+  const toolName =
+    method === "tools/call" && params !== null && typeof params["name"] === "string"
+      ? params["name"]
+      : null;
+  const era = detectEra(method, metaVersion);
 
+  try {
     if (era === "modern") {
       const version = typeof metaVersion === "string" ? metaVersion : MODERN_PROTOCOL_VERSION;
       if (version !== MODERN_PROTOCOL_VERSION) {
@@ -340,14 +348,19 @@ export async function handleMcpPost(
       }
     }
 
-    return resultResponse(id, era, await dispatch(env, session, era, method, params));
+    const result = await dispatch(env, session, era, method, params);
+    logRpc(era, declaredVersion, method, toolName, "ok");
+    return resultResponse(id, era, result);
   } catch (error) {
     if (error instanceof McpError) {
+      logRpc(era, declaredVersion, method, toolName, `error ${error.code}`);
+      if (error.code === JsonRpcCode.HeaderMismatch) logMirroredHeaders(request);
       return errorResponse(id, error.code, error.message, {
         status: error.httpStatus,
         data: error.data,
       });
     }
+    logRpc(era, declaredVersion, method, toolName, "error internal");
     return errorResponse(id, JsonRpcCode.InternalError, "Internal server error.");
   }
 }
@@ -363,6 +376,36 @@ function detectEra(method: string, metaVersion: unknown): Era {
   if (method === "initialize") return "legacy";
   if (method === "server/discover") return "modern";
   return typeof metaVersion === "string" ? "modern" : "legacy";
+}
+
+/**
+ * One line per JSON-RPC request: which era and version the client declared,
+ * which method it called, and how it ended. Method and tool names are not
+ * user data — no arguments, no task content, no token is ever logged.
+ */
+function logRpc(
+  era: Era,
+  version: string | null,
+  method: string,
+  toolName: string | null,
+  outcome: string,
+): void {
+  const tool = toolName === null ? "" : ` ${toolName}`;
+  console.log(`mcp ${era} ${version ?? "-"} ${method}${tool} -> ${outcome}`);
+}
+
+/**
+ * On a header mismatch, record which mirrored headers actually arrived. This
+ * is the difference between "the client is not compliant" and "the client
+ * speaks the older protocol", and both look identical without it.
+ */
+function logMirroredHeaders(request: Request): void {
+  console.log(
+    "mcp headers: " +
+      `protocol=${request.headers.get("mcp-protocol-version") ?? "-"} ` +
+      `method=${request.headers.get("mcp-method") ?? "-"} ` +
+      `name=${request.headers.get("mcp-name") ?? "-"}`,
+  );
 }
 
 /** GET and DELETE are not part of this transport revision. */
