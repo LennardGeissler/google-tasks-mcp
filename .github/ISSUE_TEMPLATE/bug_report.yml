@@ -1,0 +1,67 @@
+name: Bug report
+description: Something behaves differently than documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not paste tokens, client secrets, authorization codes or
+        `wrangler secret` values into this issue. Redact them first.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it happen
+      options:
+        - Deployed worker (wrangler deploy)
+        - Locally (wrangler dev)
+        - Both
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Which client
+      options:
+        - Claude.ai connector
+        - MCP Inspector
+        - curl / other
+        - Not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: >
+        Output of `npx wrangler tail`, the failing request, or the test
+        failure. Rendered as a code block, no backticks needed.
+      render: text
+
+  - type: input
+    id: setup-step
+    attributes:
+      label: Setup step reached
+      description: If this happened during setup, which README step were you on?
+      placeholder: "Step 5"
