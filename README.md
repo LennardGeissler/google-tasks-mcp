@@ -1,12 +1,12 @@
 # google-tasks-mcp
 
-Ein Remote-MCP-Server, der Google Tasks als Custom Connector in Claude.ai
-verfügbar macht. Läuft auf Cloudflare Workers, erreichbar über Streamable
-HTTP, und ist auf **genau einen** Google-Account beschränkt.
+A remote MCP server that exposes Google Tasks as a custom connector in
+Claude.ai. Runs on Cloudflare Workers, reachable over Streamable HTTP, and is
+locked to **exactly one** Google account.
 
-## Werkzeuge
+## Tools
 
-| Tool | Parameter | Annotations |
+| Tool | Parameters | Annotations |
 |---|---|---|
 | `list_tasklists` | – | `readOnlyHint` |
 | `list_tasks` | `tasklist_id`, `show_completed`, `due_after`, `due_before` | `readOnlyHint` |
@@ -15,68 +15,67 @@ HTTP, und ist auf **genau einen** Google-Account beschränkt.
 | `complete_task` | `task_id`, `tasklist_id` | `idempotentHint` |
 | `delete_task` | `task_id`, `tasklist_id` | **`destructiveHint`** |
 
-Datumsangaben sind immer `YYYY-MM-DD`; Google Tasks speichert ohnehin nur das
-Datum, nicht die Uhrzeit. `tasklist_id` ist überall optional und fällt auf die
-Standardliste des Accounts zurück.
+Dates are always `YYYY-MM-DD`; Google Tasks only stores the date anyway, never
+a time. `tasklist_id` is optional everywhere and falls back to the account's
+default list.
 
-## Architektur
+## Architecture
 
-Zwei Auth-Ebenen, die sich keinen Token teilen:
+Two auth layers that share no token:
 
 ```
-                 Ebene 1: MCP-Auth-Spec              Ebene 2: Google OAuth
+                 Layer 1: MCP auth spec               Layer 2: Google OAuth
 Claude.ai  ──────────────────────────────►  Worker  ──────────────────────►  Google
            /authorize /token /register              /oauth/google/callback
-           PKCE S256, Bearer-Token                  Refresh-Token in KV (AES-GCM)
+           PKCE S256, bearer token                  refresh token in KV (AES-GCM)
 ```
 
-* **Claude → Worker**: Der Worker ist sein eigener OAuth-2.1-Server. Dynamic
-  Client Registration, PKCE S256 (kein `plain`), Token-Endpoint nimmt
-  `application/x-www-form-urlencoded`. Die Tokens sind HMAC-signierte,
-  selbstverifizierende Strings — kein KV-Lesezugriff im Login-Pfad, weil KV
-  nur *eventually consistent* ist und der Code-Tausch sonst sporadisch
-  fehlschlagen würde.
-* **Worker → Google**: Klassischer Authorization-Code-Flow mit
-  `access_type=offline`. Der Refresh-Token liegt AES-GCM-verschlüsselt in KV,
-  der Access-Token nur im Speicher. Bei `401` refresht der Client genau einmal
-  und wiederholt den Aufruf genau einmal.
+* **Claude → Worker**: the worker is its own OAuth 2.1 server. Dynamic client
+  registration, PKCE S256 (no `plain`), and a token endpoint that takes
+  `application/x-www-form-urlencoded`. The tokens are HMAC-signed,
+  self-verifying strings — no KV read in the login path, because KV is only
+  *eventually consistent* and the code exchange would otherwise fail
+  sporadically.
+* **Worker → Google**: a plain authorization code flow with
+  `access_type=offline`. The refresh token sits in KV encrypted with AES-GCM,
+  the access token lives in memory only. On a `401` the client refreshes
+  exactly once and retries the call exactly once.
 
-Der MCP-Endpoint spricht **beide Protokoll-Generationen**: die aktuelle
-Revision `2026-07-28` (Per-Request-`_meta`, `server/discover`, gespiegelte
-HTTP-Header) und die ältere `initialize`-basierte Form (`2025-11-25`,
-`2025-06-18`, `2025-03-26`). Welche Revision Claude.ai verwendet, ist nicht
-dokumentiert; die Spec erlaubt ausdrücklich, beide auf demselben Endpoint zu
-bedienen.
+The MCP endpoint speaks **both protocol generations**: the current revision
+`2026-07-28` (per-request `_meta`, `server/discover`, mirrored HTTP headers)
+and the older `initialize`-based form (`2025-11-25`, `2025-06-18`,
+`2025-03-26`). Which revision Claude.ai uses is undocumented; the spec
+explicitly allows serving both from the same endpoint.
 
-## Voraussetzungen
+## Requirements
 
 * Node.js 20+
-* Ein Cloudflare-Account (der kostenlose Plan reicht — keine Durable Objects)
-* Ein Google-Account
-* `openssl` für die Schlüsselerzeugung
+* A Cloudflare account (the free plan is enough — no Durable Objects)
+* A Google account
+* `openssl` for generating keys
 
 ---
 
-# Einrichtung
+# Setup
 
-Die Schritte bauen aufeinander auf. Die Reihenfolge ist wichtig: Du brauchst
-die Worker-URL, bevor Du den Google-OAuth-Client konfigurieren kannst.
+The steps build on each other. Order matters: you need the worker URL before
+you can configure the Google OAuth client.
 
-## Schritt 1 — Abhängigkeiten installieren
+## Step 1 — Install dependencies
 
 ```bash
 npm install
 ```
 
-## Schritt 2 — Bei Cloudflare anmelden und KV anlegen
+## Step 2 — Log in to Cloudflare and create the KV namespace
 
 ```bash
 npx wrangler login
 npx wrangler kv namespace create TASKS_KV
 ```
 
-Der zweite Befehl gibt eine ID aus. Trage sie in `wrangler.toml` ein und
-ersetze damit `REPLACE_WITH_YOUR_KV_NAMESPACE_ID`:
+The second command prints an ID. Put it into `wrangler.toml`, replacing
+`REPLACE_WITH_YOUR_KV_NAMESPACE_ID`:
 
 ```toml
 [[kv_namespaces]]
@@ -84,110 +83,108 @@ binding = "TASKS_KV"
 id = "0123456789abcdef0123456789abcdef"
 ```
 
-## Schritt 3 — Einmal deployen, um die URL zu bekommen
+## Step 3 — Deploy once to get the URL
 
 ```bash
 npx wrangler deploy
 ```
 
-Am Ende steht die öffentliche Adresse, etwa:
+At the end it prints the public address, something like:
 
 ```
-https://google-tasks-mcp.<dein-subdomain>.workers.dev
+https://google-tasks-mcp.<your-subdomain>.workers.dev
 ```
 
-Diese URL brauchst Du gleich mehrfach — im Folgenden `$WORKER`. Der Server
-antwortet jetzt noch mit `500`, weil die Secrets fehlen. Das ist korrekt: er
-startet nicht mit unvollständiger Konfiguration.
+You will need this URL several times below; it is referred to as `$WORKER`.
+The server still answers with `500` at this point, because the secrets are
+missing. That is correct: it refuses to start with incomplete configuration.
 
-## Schritt 4 — Google-Cloud-Projekt und OAuth-Client
+## Step 4 — Google Cloud project and OAuth client
 
-1. [console.cloud.google.com](https://console.cloud.google.com) öffnen und
-   oben links ein **neues Projekt** anlegen, z. B. `tasks-mcp`.
-2. **APIs & Services → Bibliothek** → nach *Google Tasks API* suchen →
-   **Aktivieren**.
-3. **Google Auth Platform** (früher *OAuth-Zustimmungsbildschirm*) öffnen und
-   die Konfiguration starten:
-   * *User Type* / Zielgruppe: **Extern** (bei einem privaten Google-Konto ist
-     das die einzige Option).
-   * App-Name und Support-E-Mail: Deine eigene Adresse.
-   * Unter **Zielgruppe** Dich selbst als **Testnutzer** eintragen.
-4. **Datenzugriff → Bereiche hinzufügen** → den Scope
-   `https://www.googleapis.com/auth/tasks` auswählen und speichern.
-5. **Clients → Client erstellen**:
-   * Anwendungstyp: **Webanwendung**
-   * Autorisierte Weiterleitungs-URIs — beide eintragen:
+1. Open [console.cloud.google.com](https://console.cloud.google.com) and
+   create a **new project** in the top left, e.g. `tasks-mcp`.
+2. **APIs & Services → Library** → search for *Google Tasks API* →
+   **Enable**.
+3. Open **Google Auth Platform** (formerly *OAuth consent screen*) and start
+   the configuration:
+   * User type / audience: **External** (with a personal Google account this
+     is the only option).
+   * App name and support email: your own address.
+   * Under **Audience**, add yourself as a **test user**.
+4. **Data access → Add scopes** → select the scope
+   `https://www.googleapis.com/auth/tasks` and save.
+5. **Clients → Create client**:
+   * Application type: **Web application**
+   * Authorised redirect URIs — add both:
      * `$WORKER/oauth/google/callback`
-     * `http://localhost:8787/oauth/google/callback` *(nur nötig, wenn Du
-       lokal testen willst — siehe unten)*
-6. Client-ID und Client-Secret notieren.
+     * `http://localhost:8787/oauth/google/callback` *(only needed if you want
+       to test locally — see below)*
+6. Note down the client ID and client secret.
 
-### Wichtig: Veröffentlichungsstatus auf „In Produktion" setzen
+### Important: set the publishing status to "In production"
 
-Solange die App im Status **Testen** steht, laufen Google-Refresh-Tokens nach
-**7 Tagen** ab, und Du müsstest den Connector wöchentlich neu verbinden. Stell
-den Status unter **Google Auth Platform → Zielgruppe** auf **In Produktion**.
+While the app sits in **Testing**, Google refresh tokens expire after
+**7 days** and you would have to reconnect the connector every week. Set the
+status to **In production** under **Google Auth Platform → Audience**.
 
-Weil `.../auth/tasks` ein sensibler Scope ist, zeigt Google beim Verbinden
-einen Warnhinweis („Google hat diese App nicht überprüft"). Da Du der einzige
-Nutzer bist, klickst Du dort auf **Erweitert → Weiter zu …**. Eine
-Verifizierung ist für den Eigengebrauch nicht erforderlich.
+Because `.../auth/tasks` is a sensitive scope, Google shows a warning when you
+connect ("Google hasn't verified this app"). Since you are the only user, click
+**Advanced → Go to …** there. Verification is not required for personal use.
 
-## Schritt 5 — Deine eigene Google-Account-ID ermitteln
+## Step 5 — Find your own Google account ID
 
-Die Allowlist prüft den `sub`-Claim Deines Google-Kontos. Den kann man nirgends
-nachschlagen — der Server sagt ihn Dir deshalb selbst. Setze dafür einmalig den
-Platzhalter:
+The allowlist checks the `sub` claim of your Google account. There is nowhere
+to look it up — so the server tells you itself. Set the placeholder once:
 
 ```bash
-npx wrangler secret put GOOGLE_CLIENT_ID       # aus Schritt 4
-npx wrangler secret put GOOGLE_CLIENT_SECRET   # aus Schritt 4
+npx wrangler secret put GOOGLE_CLIENT_ID       # from step 4
+npx wrangler secret put GOOGLE_CLIENT_SECRET   # from step 4
 npx wrangler secret put TOKEN_SIGNING_KEY      # openssl rand -base64 32
 npx wrangler secret put ENCRYPTION_KEY         # openssl rand -base64 32
-npx wrangler secret put ALLOWED_GOOGLE_SUB     # genau: SETUP
+npx wrangler secret put ALLOWED_GOOGLE_SUB     # exactly: SETUP
 ```
 
-Zwei zufällige Schlüssel erzeugst Du mit:
+Generate the two random keys with:
 
 ```bash
 openssl rand -base64 32
 ```
 
-Jetzt im Browser aufrufen:
+Now open this in a browser:
 
 ```
 $WORKER/authorize?response_type=code&client_id=setup&redirect_uri=https%3A%2F%2Fclaude.ai%2Fapi%2Fmcp%2Fauth_callback&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256
 ```
 
-Nach der Google-Anmeldung zeigt der Server eine Textseite mit Deiner
-Account-ID (21 Ziffern). Es wird dabei **nichts gespeichert** und kein Token
-ausgegeben — im `SETUP`-Modus lehnt die Allowlist jeden ab.
+After the Google sign-in the server shows a plain text page with your account
+ID (21 digits). **Nothing is stored** in the process and no token is issued —
+in `SETUP` mode the allowlist rejects everyone.
 
-Trag die ID dann als echten Wert ein:
+Then set the ID as the real value:
 
 ```bash
-npx wrangler secret put ALLOWED_GOOGLE_SUB     # die 21-stellige Zahl
+npx wrangler secret put ALLOWED_GOOGLE_SUB     # the 21-digit number
 ```
 
-## Schritt 6 — Secrets prüfen
+## Step 6 — Check the secrets
 
 ```bash
 npx wrangler secret list
 ```
 
-Es müssen fünf Einträge da sein: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+There must be five entries: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `ALLOWED_GOOGLE_SUB`, `TOKEN_SIGNING_KEY`, `ENCRYPTION_KEY`.
 
-Keiner davon steht in `wrangler.toml` oder im Repository. `.dev.vars` ist
-über `.gitignore` ausgeschlossen.
+None of them appears in `wrangler.toml` or in the repository. `.dev.vars` is
+excluded via `.gitignore`.
 
-## Schritt 7 — Deployen
+## Step 7 — Deploy
 
 ```bash
 npm run typecheck && npm test && npx wrangler deploy
 ```
 
-Kurzer Funktionstest:
+A quick smoke test:
 
 ```bash
 curl -s $WORKER/.well-known/oauth-protected-resource | jq
@@ -195,80 +192,77 @@ curl -si -X POST $WORKER/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | head -3
 ```
 
-Der erste Aufruf muss das Metadaten-Dokument liefern, der zweite ein `401`
-mit einem `WWW-Authenticate`-Header.
+The first call must return the metadata document, the second a `401` with a
+`WWW-Authenticate` header.
 
-## Schritt 8 — Connector in Claude.ai einrichten
+## Step 8 — Add the connector in Claude.ai
 
-1. In Claude.ai auf **Einstellungen → Connectors** gehen.
-2. **Connector hinzufügen** wählen.
-3. Als URL eintragen:
+1. In Claude.ai go to **Settings → Connectors**.
+2. Choose **Add connector**.
+3. Enter as the URL:
 
    ```
    $WORKER/mcp
    ```
 
-4. Claude registriert sich selbst, öffnet den Login und leitet Dich zu Google.
-   Melde Dich mit **dem Konto an, dessen ID Du in Schritt 5 hinterlegt hast**.
-   Klick den Unverifiziert-Hinweis mit **Erweitert → Weiter zu …** durch.
-5. Nach der Zustimmung landest Du zurück in Claude.ai; der Connector ist
-   verbunden.
+4. Claude registers itself, opens the login and sends you to Google. Sign in
+   with **the account whose ID you configured in step 5**. Click through the
+   unverified-app notice with **Advanced → Go to …**.
+5. After consenting you land back in Claude.ai and the connector is connected.
 
-Falls Du Dich versehentlich mit einem anderen Google-Konto anmeldest, bricht
-der Vorgang mit `access_denied` ab — genau so ist es gedacht.
+If you accidentally sign in with a different Google account, the flow aborts
+with `access_denied` — which is exactly the intent.
 
-## Schritt 9 — Ausprobieren
+## Step 9 — Try it out
 
-Frag Claude im Chat etwa: *„Welche Aufgabenlisten habe ich?"* oder
-*„Leg mir eine Aufgabe ‚Steuer machen' mit Fälligkeit 15.03. an."*
+Ask Claude something like: *"Which task lists do I have?"* or *"Add a task
+'file taxes' due on March 15."*
 
 ---
 
-# Lokal testen
+# Testing locally
 
 ## wrangler dev
 
 ```bash
-cp .dev.vars.example .dev.vars      # und mit echten Werten füllen
+cp .dev.vars.example .dev.vars      # then fill in real values
 npx wrangler dev
 ```
 
-Läuft auf `http://localhost:8787` mit einem lokalen KV-Emulator. Für den
-OAuth-Durchlauf brauchst Du zusätzlich:
+Runs on `http://localhost:8787` with a local KV emulator. For the OAuth round
+trip you additionally need:
 
-* in `wrangler.toml`: `ALLOW_LOCAL_REDIRECT = "true"` (erlaubt die
-  Loopback-Redirect-URI des Inspectors)
-* in Google Cloud: `http://localhost:8787/oauth/google/callback` als
-  autorisierte Weiterleitungs-URI (siehe Schritt 4)
+* in `wrangler.toml`: `ALLOW_LOCAL_REDIRECT = "true"` (allows the inspector's
+  loopback redirect URI)
+* in Google Cloud: `http://localhost:8787/oauth/google/callback` as an
+  authorised redirect URI (see step 4)
 
-`SERVER_BASE_URL` bleibt leer, dann leitet der Worker seine Basis-URL aus der
-eingehenden Anfrage ab.
+`SERVER_BASE_URL` stays empty; the worker then derives its base URL from the
+incoming request.
 
-> Beide Lockerungen gehören **nicht** in die Produktion. Setz
-> `ALLOW_LOCAL_REDIRECT` vor dem nächsten `wrangler deploy` wieder auf
-> `"false"`.
+> Neither relaxation belongs in production. Set `ALLOW_LOCAL_REDIRECT` back to
+> `"false"` before the next `wrangler deploy`.
 
 ## MCP Inspector
 
-In einem zweiten Terminal:
+In a second terminal:
 
 ```bash
 npx @modelcontextprotocol/inspector
 ```
 
-Der Inspector öffnet sich auf `http://localhost:6274`. Dort einstellen:
+The inspector opens on `http://localhost:6274`. Set it to:
 
 * **Transport Type**: `Streamable HTTP`
 * **URL**: `http://localhost:8787/mcp`
 
-Dann **Connect**. Der Inspector findet über
-`/.well-known/oauth-protected-resource` den Authorization-Server, registriert
-sich per DCR, schickt Dich durch den Google-Login und kommt mit einem Token
-zurück. Danach kannst Du unter **Tools** `tools/list` aufrufen und jedes Tool
-einzeln mit eigenen Argumenten testen.
+Then hit **Connect**. The inspector discovers the authorization server via
+`/.well-known/oauth-protected-resource`, registers itself via DCR, sends you
+through the Google login and comes back with a token. After that you can call
+`tools/list` under **Tools** and exercise each tool with your own arguments.
 
-Ohne kompletten OAuth-Durchlauf geht es auch: Wenn Du schon einen
-Access-Token hast, kannst Du direkt mit `curl` sprechen.
+It also works without the full OAuth round trip: if you already have an access
+token you can talk to it with `curl` directly.
 
 ```bash
 curl -s -X POST http://localhost:8787/mcp \
@@ -279,134 +273,144 @@ curl -s -X POST http://localhost:8787/mcp \
 
 ---
 
-# Betrieb
+# Operating it
 
-**Zugriff sofort entziehen** — eine der beiden Maßnahmen genügt:
+**Revoke access immediately** — either measure is enough:
 
 ```bash
-# 1. Alle von uns ausgegebenen Tokens ungültig machen
-npx wrangler secret put TOKEN_SIGNING_KEY     # neuen Wert setzen
+# 1. Invalidate every token we ever issued
+npx wrangler secret put TOKEN_SIGNING_KEY     # set a new value
 
-# 2. Den gespeicherten Google-Refresh-Token löschen
+# 2. Delete the stored Google refresh token
 npx wrangler kv key delete "google:refresh_token" --binding TASKS_KV --remote
 ```
 
-Zusätzlich lässt sich der Zugriff jederzeit unter
-[myaccount.google.com/permissions](https://myaccount.google.com/permissions)
-auf Google-Seite widerrufen.
+Access can additionally be revoked on Google's side at any time under
+[myaccount.google.com/permissions](https://myaccount.google.com/permissions).
 
-**Wenn alle Endpunkte `500` liefern:**
+**If every endpoint returns `500`:**
 
 ```bash
 npx wrangler tail
 ```
 
-Die Logzeile `configuration_error: missing or empty secret(s): …` nennt genau
-die fehlenden Bindings — Namen, nie Werte. Die Antwort nach außen bleibt ein
-nacktes `{"error":"server_error"}`.
+The log line `configuration_error: missing or empty secret(s): …` names
+exactly the missing bindings — names, never values. The outward-facing answer
+stays a bare `{"error":"server_error"}`.
 
-> `wrangler secret put` fragt den Wert **interaktiv** ab. Läuft es ohne
-> Terminal (in einer IDE-Konsole, einem Skript, einem Agenten), liest es einen
-> leeren Wert und meldet trotzdem Erfolg. Das Secret existiert dann, ist aber
-> leer. Entweder in einem echten Terminal ausführen oder den Wert
-> hineinpipen:
+> `wrangler secret put` asks for the value **interactively**. Running it
+> without a terminal (in an IDE console, a script, an agent) reads an empty
+> value and still reports success. The secret then exists but is empty. Either
+> run it in a real terminal or pipe the value in:
 >
 > ```bash
-> printf '%s' "$WERT" | npx wrangler secret put GOOGLE_CLIENT_ID
+> printf '%s' "$VALUE" | npx wrangler secret put GOOGLE_CLIENT_ID
 > ```
 
-**Logs ansehen:**
+**Viewing logs:**
 
 ```bash
 npx wrangler tail
 ```
 
-Geloggt werden nur Methode, Pfad, Statuscode und Dauer. Keine Tokens, keine
-Query-Strings (die enthalten Codes und State), keine Aufgabeninhalte.
+Only the method, path, status code and duration are logged, plus one line per
+JSON-RPC request with the protocol era, method and outcome. No tokens, no
+query strings (they contain codes and state), no task content.
 
 ---
 
-# Sicherheitsmodell
+# Security model
 
-Was aktiv geschützt ist:
+What is actively protected:
 
-* **Account-Allowlist.** Der `sub`-Claim wird an drei Stellen geprüft: beim
-  Google-Callback (vorher wird nichts gespeichert), beim Einlösen des
-  Authorization-Codes und bei jedem einzelnen Bearer-Token.
-* **Redirect-URI-Allowlist.** Exakter String-Vergleich, keine Präfixe, keine
-  Wildcards. Eine unbekannte Redirect-URI führt zu einer 400-Seite statt zu
-  einem Redirect — sonst wäre der Server ein Open Redirector.
-* **PKCE S256 verpflichtend.** `plain` wird nicht angeboten und nicht
-  akzeptiert.
-* **Audience-Bindung.** Ein Token, das für eine andere Resource ausgestellt
-  wurde, wird abgelehnt (RFC 8707).
-* **Refresh-Token verschlüsselt.** AES-GCM, Schlüssel aus
-  `wrangler secret`. Im KV steht nur Ciphertext.
-* **Rate-Limit pro Session.** 60 Aufrufe, davon 20 schreibende und 5
-  Löschungen pro Minute. Das ist eine Bremse gegen ein Modell in einer
-  Schleife, kein Schutz gegen einen Angreifer.
-* **Keine Stacktraces nach außen.** Alle Antworten laufen über eine einzige
-  Stelle, die unbekannte Fehler auf eine feste Meldung reduziert.
+* **Account allowlist.** The `sub` claim is checked in three places: at the
+  Google callback (nothing is stored before that), when the authorization code
+  is redeemed, and on every single bearer token.
+* **Redirect URI allowlist.** Exact string comparison, no prefixes, no
+  wildcards. An unknown redirect URI leads to a 400 page instead of a
+  redirect — otherwise the server would be an open redirector.
+* **PKCE S256 mandatory.** `plain` is neither offered nor accepted.
+* **Audience binding.** A token issued for a different resource is rejected
+  (RFC 8707).
+* **Refresh token encrypted.** AES-GCM, key from `wrangler secret`. KV holds
+  ciphertext only.
+* **Per-session rate limit.** 60 calls, of which 20 writes and 5 deletions per
+  minute. That is a brake against a model in a loop, not protection against an
+  attacker.
+* **No stack traces leave the process.** Every response goes through a single
+  place that reduces unknown errors to a fixed message.
 
-Bewusste Grenzen — nachlesbar im Code, hier zusammengefasst:
+Deliberate limits — readable in the code, summarised here:
 
-* **Refresh-Tokens sind nicht widerrufbar.** Sie sind zustandslos signiert;
-  ein ausgegebener Token gilt bis zum Ablauf (30 Tage). Zum Abschalten
-  `TOKEN_SIGNING_KEY` rotieren.
-* **Einmaligkeit der Authorization-Codes ist best effort.** Der Marker liegt
-  in KV, das über Rechenzentren hinweg *eventually consistent* ist. Ein Code
-  lebt 60 Sekunden und ist an ein PKCE-Challenge gebunden; ein Replay bräuchte
-  zusätzlich den Verifier.
-* **Rate-Limit-Zähler ebenfalls in KV**, also aus demselben Grund näherungs-
-  weise. Bei einem einzelnen Nutzer, dessen Anfragen im selben Rechenzentrum
-  landen, stimmt es in der Praxis.
-* **`id_token`-Signatur wird nicht geprüft.** Das Token kommt über TLS direkt
-  aus Googles Token-Endpoint als Antwort auf unsere authentifizierte Anfrage —
-  genau der Fall, den OpenID Connect Core 3.1.3.7 davon ausnimmt. Die Funktion
-  darf auf keinem anderen Weg gefüttert werden.
-* **Kein `Origin`-Blocking.** Der Endpoint authentifiziert ausschließlich per
-  `Authorization`-Header, nie per Cookie. Fremdes Browser-JavaScript kann
-  daher keine authentifizierte Anfrage im Namen des Nutzers stellen; ein
-  Origin-Filter würde nur den Inspector aussperren.
+* **Refresh tokens are not revocable.** They are statelessly signed; an issued
+  token is valid until it expires (30 days). To shut it off, rotate
+  `TOKEN_SIGNING_KEY`.
+* **Single use of authorization codes is best effort.** The marker lives in
+  KV, which is *eventually consistent* across data centres. A code lives for
+  60 seconds and is bound to a PKCE challenge; a replay would additionally
+  need the verifier.
+* **Rate limit counters are in KV too**, so approximate for the same reason.
+  With a single user whose requests land in the same data centre it holds in
+  practice.
+* **The `id_token` signature is not verified.** The token arrives over TLS
+  directly from Google's token endpoint, as the response to our authenticated
+  request — exactly the case OpenID Connect Core 3.1.3.7 exempts. The function
+  must not be fed from any other source.
+* **No `Origin` blocking.** The endpoint authenticates purely via the
+  `Authorization` header, never via a cookie. Third-party browser JavaScript
+  therefore cannot make an authenticated request on the user's behalf; an
+  origin filter would only lock out the inspector.
 
 ---
 
-# Projektstruktur
+# Project layout
 
 ```
 src/
-  index.ts              Router und Fehler-Sammelstelle
-  env.ts                Bindings, Konfigurationsprüfung
+  index.ts              router and error collection point
+  env.ts                bindings, configuration check
   errors.ts             McpError / ToolExecutionError / OAuthError
-  crypto.ts             base64url, HMAC-Tokens, AES-GCM, timing-safe compare
-  store.ts              KV-Zugriff
-  http.ts               Response-Helfer, CORS
-  ratelimit.ts          Zähler pro Session
+  crypto.ts             base64url, HMAC tokens, AES-GCM, timing-safe compare
+  store.ts              KV access
+  http.ts               response helpers, CORS
+  ratelimit.ts          per-session counters
   auth/
-    mcp-oauth.ts        Ebene 1: Discovery, /authorize, /token, Bearer-Prüfung
-    tokens.ts           signierte Codes und Tokens
+    mcp-oauth.ts        layer 1: discovery, /authorize, /token, bearer check
+    tokens.ts           signed codes and tokens
     pkce.ts             S256
-    clients.ts          DCR, Redirect-URI-Allowlist
-    google.ts           Ebene 2: Google-OAuth, sub-Allowlist, Setup-Modus
+    clients.ts          DCR, redirect URI allowlist
+    google.ts           layer 2: Google OAuth, sub allowlist, setup mode
   google/
-    tasks-client.ts     Tasks API v1, 401 → Refresh → Retry
+    tasks-client.ts     Tasks API v1, 401 → refresh → retry
   mcp/
-    server.ts           JSON-RPC, beide Protokoll-Generationen
-    tools.ts            Tool-Definitionen und Annotations
-    handlers.ts         Tool-Implementierungen
-test/                   102 Unit-Tests
+    server.ts           JSON-RPC, both protocol generations
+    tools.ts            tool definitions and annotations
+    handlers.ts         tool implementations
+test/                   102 unit tests
 ```
 
 # Tests
 
 ```bash
-npm test          # einmal
+npm test          # once
 npm run test:watch
 npm run typecheck
 ```
 
-Die Google-API ist durchgehend gemockt, KV läuft in-memory. Abgedeckt sind
-unter anderem Token-Refresh inklusive 401-Retry, die Allowlist an allen drei
-Prüfpunkten, PKCE gegen den RFC-7636-Testvektor, der komplette OAuth-Durchlauf
-über den Worker, beide Protokoll-Generationen samt Header-Validierung, die
-Rate-Limits und die Tool-Handler.
+The Google API is mocked throughout and KV runs in memory. Covered are, among
+other things, token refresh including the 401 retry, the allowlist at all
+three checkpoints, PKCE against the RFC 7636 test vector, the complete OAuth
+round trip through the worker, both protocol generations including header
+validation, the rate limits and the tool handlers.
+
+---
+
+# Contributing
+
+Bug reports and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+For security issues please follow [SECURITY.md](SECURITY.md) instead of opening
+a public issue.
+
+# License
+
+[MIT](LICENSE)
